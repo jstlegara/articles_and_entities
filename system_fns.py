@@ -1,6 +1,9 @@
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 import networkx as nx
+import imageio
+from datetime import timedelta
 from itertools import chain
 from tqdm.notebook import tqdm
 
@@ -86,20 +89,26 @@ class ArticleEntityAnalysis:
         return nx.bipartite.weighted_projected_graph(B, nodes)
 
 
-    def _slice_analyze_average(self, window_size, function, kind):
+    def _slice_analyze_average(self, window_panel, function, kind, mean=True):
         """
         Analyzes data over a rolling window and computes the average result.
+        The time series is divided into the number of 'window_panel'. e.g. if
+        window_panel = 3, there are 3 equal windows for analysis.
 
         Parameters:
-        - window_size (int): Size of the rolling window in days.
+        - window_panel (int): Number of the rolling windows covering the
+            dates.
         - function (callable): The function to apply to each projected graph.
         - kind (str): The type of projection to perform.
+        - mean (bool): Whether to return a list of results or the averaged
+            result.
 
         Returns:
-        - float: The average result from the analysis function.
+        - result (list/float): List or average result from the analysis
+            function depending on the parameter 'mean'.
         """
-        width = self.span - window_size + 1
-        slide = window_size - 1
+        width = self.span - window_panel + 1
+        slide = window_panel - 1
 
         start_slice = self.start_date
         end_slice = start_slice + pd.Timedelta(days=width)
@@ -117,64 +126,155 @@ class ArticleEntityAnalysis:
             end_slice += pd.Timedelta(days=1)
             slide -= 1
 
-        return np.mean(result)
+        return np.mean(result) if mean else result
 
 
-    def _check_window_value(self, window):
+    def _check_window_panel_value(self, window_panel):
         """
         Validates the window size or range for the analysis.
 
         Parameters:
-        - window (int or tuple): The window size or (start, end) range.
+        - window_panel (int or tuple): The number of window panels or
+            (start, end) range of possible window panels to test.
 
         Raises:
-        - ValueError: If window values are outside of valid ranges.
-        - TypeError: If window is not an int or tuple of two ints.
+        - ValueError: If window panel values are outside of valid ranges.
+        - TypeError: If window panel is not an int or tuple of two ints.
         """
-        if type(window) is int:
-            if window < 1 or window > self.span:
-                raise ValueError("Integer window value must be between 1 and "
-                                 "'span'.")
-        elif type(window) is tuple and len(window) == 2:
-            if window[0] < 1 or window[1] > self.span or\
-                (window[1] <= window[0]):
-                raise ValueError("Tuple window range must start at least at "
-                                 "1 and end within 'span', with end > start.")
+        if type(window_panel) is int:
+            if window_panel < 1 or window_panel > self.span:
+                raise ValueError("Integer window panel value must be between "
+                                 "1 and 'span'.")
+        elif type(window_panel) is tuple and len(window_panel) == 2:
+            if window_panel[0] < 1 or window_panel[1] > self.span or\
+                (window_panel[1] <= window_panel[0]):
+                raise ValueError("Tuple window panel range must start at "
+                                 "least at 1 and end within 'span', with end "
+                                 "> start.")
         else:
-            raise TypeError("Window must be an integer or a tuple of two "
-                            "integers.")
+            raise TypeError("Window panels must be an integer or a tuple of "
+                            "two integers.")
 
 
-    def rolling_window_analysis(self, function, window=1, kind='article'):
+    def aggregate_rolling_window_analysis(self, function, window_panel=1,
+                                          kind='article', mean=True):
         """
         Conducts rolling window analysis using a specified function.
 
         Parameters:
         - function (callable): Function to apply to each window projection.
-        - window (int or tuple): Size or range of window sizes to analyze.
+        - window_panels (int or tuple): Size or range of window panels to
+            perform analysis and comparison.
         - kind (str): Type of projection for analysis ('article' or 'entity').
 
         Returns:
-        - list or float: Results from analysis, list if window is tuple, else
-            float.
+        - list or float: Results from analysis, list if window is tuple,
+            else float.
         """
-        self._check_window_value(window)
+        self._check_window_panel_value(window_panel)
 
-        if type(window) is int:
-
-            result = self._slice_analyze_average(window_size=window,
+        if type(window_panel) is int:
+            result = self._slice_analyze_average(window_panel=window_panel,
                                                  function=function,
-                                                 kind=kind)
-        elif type(window) is tuple:
-
-            result = [
-                self._slice_analyze_average(window_size=i,
-                                            function=function,
-                                            kind=kind)
-                for i in tqdm(np.arange(window[0], window[1] + 1))
-            ]
+                                                 kind=kind,
+                                                 mean=mean)
+        elif type(window_panel) is tuple:
+            result = [self._slice_analyze_average(window_panel=i,
+                                                  function=function,
+                                                  kind=kind,
+                                                  mean=mean)
+                      for i in tqdm(np.arange(window_panel[0],
+                                              window_panel[1] + 1))]
 
         return result
+
+
+    def element_rolling_window_degree_analysis(self, p=5, window_size=7,
+                                               kind='entity', plot=False):
+        current_date = self.start_date
+        
+        results = {}
+        
+        while current_date <= self.end_date:
+            cut = self.df[
+                (self.df['date'] >= current_date) &
+                (self.df['date'] <
+                     current_date + pd.Timedelta(days=window_size))
+            ]
+            bipartite = self._create_bipartite_network(df=cut)
+            projection = self.convert_to_projection(B=bipartite, kind=kind)
+            
+            weighted_degree_dict = dict(projection.degree(weight='weight'))
+            for value, degree in weighted_degree_dict.items():
+                if value not in results:
+                    results[value] = []
+                results[value].append((current_date, degree))
+
+            current_date += timedelta(1)
+            
+        all_dates = pd.date_range(self.start_date, self.end_date)
+        for value in results:
+            existing_dates = {date for date, _ in results[value]}
+            missing_dates = set(all_dates) - existing_dates
+            for missing_date in missing_dates:
+                results[value].append((missing_date, 0))
+            results[value].sort()
+        
+        max_degree_elems = sorted(results,
+                                  key=lambda x: max([degree for _, degree in
+                                                     results[x]]),
+                                  reverse=True)
+        top_p_elems = max_degree_elems[:p]
+        
+        if plot:
+            # Fetch default matplotlib colors
+            default_colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+            color_dict = {value: color for value, color in
+                          zip(top_p_elems, default_colors)}
+
+            filenames = []
+            for index, focus_elem in enumerate(top_p_elems):
+                plt.figure(figsize=(18, 8))
+
+                line_handles = []
+                line_labels = []
+
+                # Plot all entities in background, including the focused
+                # element
+                for elem in top_p_elems:
+                    values = results[elem]
+                    dates, degrees = zip(*values)
+                    if elem != focus_elem:
+                        line, = plt.plot(dates, degrees, '-',
+                                         color='lightgray', alpha=0.6)
+                    else:
+                        line, = plt.plot(dates, degrees, '-',
+                                         color=color_dict[elem],
+                                         linewidth=2.5)
+                    line_handles.append(line)
+                    line_labels.append(elem)
+
+                # Replot the focused entity to ensure it's in the foreground
+                values = results[focus_elem]
+                dates, degrees = zip(*values)
+                plt.plot(dates, degrees, '-', linewidth=2.5,
+                         color=color_dict[focus_elem])
+
+                plt.ylabel("Weighted Degree")
+                plt.xlabel("Date")
+                plt.legend(line_handles, line_labels, loc='upper left')
+                plt.tight_layout()
+                filename = f"{focus_elem}_plot.png"
+                plt.savefig(filename, dpi=150)
+                filenames.append(filename)
+                plt.close()
+
+            # Create GIF
+            with imageio.get_writer(f'{kind}_progression.gif', mode='I',
+                                    duration=1) as writer:
+                for filename in filenames:
+                    image = imageio.imread(filename)
+                    writer.append_data(image)
 
 
 ##################################
