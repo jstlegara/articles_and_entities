@@ -89,7 +89,7 @@ class ArticleEntityAnalysis:
         return nx.bipartite.weighted_projected_graph(B, nodes)
 
 
-    def _slice_analyze_average(self, window_panel, function, kind, mean=True):
+    def _slice_analyze_average(self, window_panel, function, kind, intersect=1, mean=True):
         """
         Analyzes data over a rolling window and computes the average result.
         The time series is divided into the number of 'window_panel'. e.g. if
@@ -122,8 +122,8 @@ class ArticleEntityAnalysis:
             projection = self.convert_to_projection(B=bipartite, kind=kind)
             result.append(function(projection))
 
-            start_slice += pd.Timedelta(days=1)
-            end_slice += pd.Timedelta(days=1)
+            start_slice += pd.Timedelta(days=intersect)
+            end_slice += pd.Timedelta(days=intersect)
             slide -= 1
 
         return np.mean(result) if mean else result
@@ -156,7 +156,7 @@ class ArticleEntityAnalysis:
                             "two integers.")
 
 
-    def aggregate_rolling_window_analysis(self, function, window_panel=1,
+    def aggregate_rolling_window_analysis(self, function, window_panel=1, intersect=1,
                                           kind='article', mean=True):
         """
         Conducts rolling window analysis using a specified function.
@@ -177,11 +177,13 @@ class ArticleEntityAnalysis:
             result = self._slice_analyze_average(window_panel=window_panel,
                                                  function=function,
                                                  kind=kind,
+                                                 intersect=intersect,
                                                  mean=mean)
         elif type(window_panel) is tuple:
             result = [self._slice_analyze_average(window_panel=i,
                                                   function=function,
                                                   kind=kind,
+                                                  intersect=intersect,
                                                   mean=mean)
                       for i in tqdm(np.arange(window_panel[0],
                                               window_panel[1] + 1))]
@@ -208,7 +210,7 @@ class ArticleEntityAnalysis:
             for value, degree in weighted_degree_dict.items():
                 if value not in results:
                     results[value] = []
-                results[value].append((current_date, degree))
+                results[value].append((pd.Timestamp(current_date), degree))
 
             current_date += timedelta(1)
             
@@ -217,7 +219,7 @@ class ArticleEntityAnalysis:
             existing_dates = {date for date, _ in results[value]}
             missing_dates = set(all_dates) - existing_dates
             for missing_date in missing_dates:
-                results[value].append((missing_date, 0))
+                results[value].append((pd.Timestamp(missing_date), 0))
             results[value].sort()
         
         max_degree_elems = sorted(results,
