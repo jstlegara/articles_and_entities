@@ -276,12 +276,28 @@ class ArticleEntityAnalysis:
                 filenames.append(filename)
                 plt.close()
 
-            # Create GIF
-            with imageio.get_writer(f'{kind}_progression.gif', mode='I',
-                                    duration=1) as writer:
-                for filename in filenames:
-                    image = imageio.imread(filename)
-                    writer.append_data(image)
+            if flat_plot:
+                plt.figure(figsize=(18, 8))
+
+                for index, focus_elem in enumerate(top_p_elems):
+                    values = results[focus_elem]
+                    dates, degrees = zip(*values)
+                    plt.plot(dates, degrees, '-', label=focus_elem,
+                             color=color_dict[focus_elem], linewidth=2.5)
+                plt.ylabel("Weighted Degree")
+                plt.xlabel("Date")
+                plt.legend(loc='upper left')
+                plt.title(f"Weighted Degree Progression of Top {p} Elements")
+                plt.tight_layout()
+                plt.savefig(f"{kind}_weighted_degree_progression.png", dpi=150)
+                plt.close()
+            else:
+                 # Create GIF
+                with imageio.get_writer(f'{kind}_progression.gif', mode='I',
+                                        duration=1) as writer:
+                    for filename in filenames:
+                        image = imageio.imread(filename)
+                        writer.append_data(image)
 
 
 ##################################
