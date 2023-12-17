@@ -85,8 +85,10 @@ class ArticleEntityAnalysis:
         B = self.B if B is None else B
         nodes = {n for n, d in B.nodes(data=True)
                  if d['bipartite'] == kind}
-
-        return nx.bipartite.weighted_projected_graph(B, nodes)
+        if B.size() == 0:
+            return None
+        else:
+            return nx.bipartite.weighted_projected_graph(B, nodes)
 
 
     def _slice_analyze_average(self, window_panel, function, kind, intersect=1, mean=True):
@@ -126,7 +128,7 @@ class ArticleEntityAnalysis:
             end_slice += pd.Timedelta(days=intersect)
             slide -= 1
 
-        return np.mean(result) if mean else result
+        return np.nanmean(result) if mean else result
 
 
     def _check_window_panel_value(self, window_panel):
@@ -192,8 +194,7 @@ class ArticleEntityAnalysis:
 
 
     def element_rolling_window_degree_analysis(self, p=5, window_size=7,
-                                               kind='entity', plot=False,
-                                               flat_plot=False):
+                                               kind='entity', plot=False):
         current_date = self.start_date
         
         results = {}
@@ -207,11 +208,14 @@ class ArticleEntityAnalysis:
             bipartite = self._create_bipartite_network(df=cut)
             projection = self.convert_to_projection(B=bipartite, kind=kind)
             
-            weighted_degree_dict = dict(projection.degree(weight='weight'))
-            for value, degree in weighted_degree_dict.items():
-                if value not in results:
-                    results[value] = []
-                results[value].append((pd.Timestamp(current_date), degree))
+            if projection:
+                weighted_degree_dict = dict(projection.degree(weight='weight'))
+                for value, degree in weighted_degree_dict.items():
+                    if value not in results:
+                        results[value] = []
+                    results[value].append((pd.Timestamp(current_date), degree))
+            else:
+                pass
 
             current_date += timedelta(1)
             
@@ -272,29 +276,12 @@ class ArticleEntityAnalysis:
                 filenames.append(filename)
                 plt.close()
 
-
-            if flat_plot:
-                plt.figure(figsize=(18, 8))
-
-                for index, focus_elem in enumerate(top_p_elems):
-                    values = results[focus_elem]
-                    dates, degrees = zip(*values)
-                    plt.plot(dates, degrees, '-', label=focus_elem,
-                             color=color_dict[focus_elem], linewidth=2.5)
-                plt.ylabel("Weighted Degree")
-                plt.xlabel("Date")
-                plt.legend(loc='upper left')
-                plt.title(f"Weighted Degree Progression of Top {p} Elements")
-                plt.tight_layout()
-                plt.savefig(f"{kind}_weighted_degree_progression.png", dpi=150)
-                plt.close()
-            else:
-                # Create GIF
-                with imageio.get_writer(f'{kind}_progression.gif', mode='I',
-                                        duration=1) as writer:
-                    for filename in filenames:
-                        image = imageio.imread(filename)
-                        writer.append_data(image)
+            # Create GIF
+            with imageio.get_writer(f'{kind}_progression.gif', mode='I',
+                                    duration=1) as writer:
+                for filename in filenames:
+                    image = imageio.imread(filename)
+                    writer.append_data(image)
 
 
 ##################################
@@ -313,10 +300,32 @@ def average_weighted_clustering_coefficient(projection):
 
     Assumes the 'weight' attribute exists for each edge.
     """
-    clustering_coefficient_weighted = nx.clustering(projection,
-                                                    weight='weight')
-    average_clustering_coefficient_weighted = sum(
-        clustering_coefficient_weighted.values()
-    ) / len(projection)
+    if projection:
+        clustering_coefficient_weighted = nx.clustering(projection,
+                                                        weight='weight')
+        average_clustering_coefficient_weighted = sum(
+            clustering_coefficient_weighted.values()
+        ) / len(projection)
 
-    return average_clustering_coefficient_weighted
+        return average_clustering_coefficient_weighted
+    else:
+        return np.nan
+    
+
+def average_centrality_metrics(projection):
+    if projection:
+        # Degree centrality
+        degree_centrality = nx.degree_centrality(projection)
+        avg_degree_centrality = sum(degree_centrality.values()) / len(projection)
+
+        # Betweenness centrality
+        betweenness_centrality = nx.betweenness_centrality(projection)
+        avg_betweenness_centrality = sum(betweenness_centrality.values()) / len(projection)
+
+        # Closeness centrality
+        closeness_centrality = nx.closeness_centrality(projection)
+        avg_closeness_centrality = sum(closeness_centrality.values()) / len(projection)
+        
+        return [avg_degree_centrality, avg_betweenness_centrality, avg_closeness_centrality]
+    else:
+        return [np.nan, np.nan, np.nan, np.nan]
