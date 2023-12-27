@@ -194,7 +194,8 @@ class ArticleEntityAnalysis:
 
 
     def element_rolling_window_degree_analysis(self, p=5, window_size=7,
-                                               kind='entity', plot=False):
+                                               kind='entity', plot=False,
+                                               flat_plot=False):
         current_date = self.start_date
         
         results = {}
@@ -287,9 +288,11 @@ class ArticleEntityAnalysis:
                 plt.ylabel("Weighted Degree")
                 plt.xlabel("Date")
                 plt.legend(loc='upper left')
-                plt.title(f"Weighted Degree Progression of Top {p} Elements")
+                plt.title(f"Weighted Degree Progression of Top {p}"
+                          f" Elements for Window Size {window_size}")
                 plt.tight_layout()
-                plt.savefig(f"{kind}_weighted_degree_progression.png", dpi=150)
+                plt.savefig(f"{kind}_top_{p}_weighted_degree"
+                            f"_window_size_{window_size}.png", dpi=150)
                 plt.close()
             else:
                  # Create GIF
